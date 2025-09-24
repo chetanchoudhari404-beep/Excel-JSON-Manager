@@ -1,0 +1,10 @@
+{
+  "folderPath": "C:\\Users\\ChetanChoudhari\\Downloads\\excel json files",
+  "pkName": "id",
+  "cacheTtlMs": 2000,
+  "pageSizeDefault": 25,
+  "maxPageSize": 200,
+  "readOnlySheets": ["Read Only"],
+  "ignoreSheets": ["_hiddenTemplate"],
+  "autoRefreshSeconds": 0
+}

@@ -1,0 +1,39 @@
+/*
+  This file is for custom styles or for Tailwind directives if you're building Tailwind locally.
+  If you're using the Tailwind CDN (as in index.html above), these directives are not strictly needed
+  unless you have custom components or utilities defined in your tailwind.config.js.
+
+  For a clean setup with CDN, you might just have your base font import here or minimal global overrides.
+*/
+
+/* Add any global base styles or font imports not covered by Tailwind */
+/* @tailwind base;
+@tailwind components;
+@tailwind utilities; */
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* Prevent body scroll, app container handles it */
+  @apply bg-gray-50 text-gray-800; /* Subtle background and default text color */
+}
+
+/* Custom scrollbar for better aesthetics */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}

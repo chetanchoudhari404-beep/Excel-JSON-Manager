@@ -1,0 +1,22 @@
+{
+  "name": "excel-db-electron",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main/index.js",
+  "scripts": {
+    "postinstall": "cd renderer && npm install",
+    "dev": "concurrently \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:renderer": "cd renderer && npm run dev",
+    "dev:electron": "wait-on http://localhost:5173 && electron .",
+    "start": "electron .",
+    "build": "cd renderer && npm run build"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.0",
+    "electron": "^31.0.0",
+    "proper-lockfile": "^4.1.2",
+    "uuid": "^11.1.0",
+    "wait-on": "^7.0.1",
+    "xlsx": "^0.18.5"
+  }
+}
