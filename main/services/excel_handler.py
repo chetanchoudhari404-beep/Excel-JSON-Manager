@@ -45,13 +45,15 @@ def find_header_row(sheet, pk_name='id'):
     except Exception as e:
         raise ValueError(f"Failed to find header row: {e}")
 
-def ensure_headers_and_ids(sheet, header_row_num, pk_name='id'):
-    """Ensures a sheet has 'id' and '_version' headers and populates them for existing rows."""
-    
+def ensure_headers_and_ids(sheet, header_row_num, pk_name='id', is_xlsm=False):
+    """
+    Ensures a sheet has 'id' and '_version' headers and populates them for existing rows.
+    Dynamically adds columns for .xlsx and validates existence for .xlsm.
+    """
     headers = []
     header_col_map = {}
     
-    # Get all existing headers and their column indices, ignoring hidden columns.
+    # Get all existing headers and their column indices
     for col_idx in range(1, sheet.api.UsedRange.Columns.Count + 1):
         cell = sheet.cells(header_row_num, col_idx)
         if not cell.api.EntireColumn.Hidden and cell.value is not None and str(cell.value).strip() != '':
@@ -62,27 +64,27 @@ def ensure_headers_and_ids(sheet, header_row_num, pk_name='id'):
     pk_col_idx = header_col_map.get(pk_name, -1)
     version_col_idx = header_col_map.get('_version', -1)
     
-    # Determine the actual last column of the used range
-    last_col = sheet.api.UsedRange.Columns.Count
-    
-    # Add id column if it doesn't exist
-    if pk_col_idx == -1:
-        last_col += 1
-        pk_col_idx = last_col
-        sheet.cells(header_row_num, pk_col_idx).value = pk_name
-        
-    # Add _version column if it doesn't exist
-    if version_col_idx == -1:
-        # Check if pk_col was just added and adjust last_col
-        if pk_col_idx == last_col:
+    # **KEY CHANGE:** Conditionally add columns based on file type
+    if not is_xlsm:
+        # For .xlsx, add columns if they don't exist
+        last_col = sheet.api.UsedRange.Columns.Count
+        if pk_col_idx == -1:
             last_col += 1
-        version_col_idx = last_col
-        sheet.cells(header_row_num, version_col_idx).value = '_version'
-    
-    # Re-evaluate headers and map after potential additions to get the final list
-    headers_range = sheet.range(header_row_num, 1).expand('right')
-    headers = [str(c.value).strip() for c in headers_range if c.value is not None]
+            pk_col_idx = last_col
+            sheet.cells(header_row_num, pk_col_idx).value = pk_name
+        
+        if version_col_idx == -1:
+            if pk_col_idx == last_col:
+                last_col += 1
+            version_col_idx = last_col
+            sheet.cells(header_row_num, version_col_idx).value = '_version'
+    else:
+        # For .xlsm, raise an error if columns are not found
+        if pk_col_idx == -1 or version_col_idx == -1:
+            raise ValueError(f"Required '{pk_name}' and '_version' columns not found in .xlsm file. "
+                             "Please add them manually to the workbook.")
 
+    # Populate the columns for existing rows
     start_row = header_row_num + 1
     last_row_with_data = sheet.range(start_row, 1).end('down').row if sheet.range(start_row, 1).value else start_row
     
@@ -100,14 +102,17 @@ def ensure_headers_and_ids(sheet, header_row_num, pk_name='id'):
 
 def add_row(wb, sheet_name, row, pk_name='id'):
     try:
+        app = wb.app
+        app.api.EnableEvents = False # Disable events
         sheet = wb.sheets[sheet_name]
-        
+        is_xlsm = wb.fullname.lower().endswith('.xlsm')
+
         try:
             header_row_num, _ = find_header_row(sheet, pk_name)
         except ValueError:
             header_row_num = 1
         
-        pk_col_idx, version_col_idx = ensure_headers_and_ids(sheet, header_row_num, pk_name)
+        pk_col_idx, version_col_idx = ensure_headers_and_ids(sheet, header_row_num, pk_name, is_xlsm)
 
         next_row_num = sheet.range(header_row_num, 1).end('down').row + 1
         
@@ -115,25 +120,16 @@ def add_row(wb, sheet_name, row, pk_name='id'):
         headers = [c.value for c in headers_range]
         
         row_to_copy_from = next_row_num - 1
-        
-        # Determine the full width of the data, including new columns
         last_col = headers_range.end('right').column
         
-        # Get the range of the row to copy from
-        source_range = sheet.range(row_to_copy_from, 1).expand('right')
-        
-        # Iterate through each column to apply formulas or values
         for col_idx in range(1, last_col + 1):
             source_cell = sheet.cells(row_to_copy_from, col_idx)
             target_cell = sheet.cells(next_row_num, col_idx)
             
-            # Copy formats
             source_cell.copy()
             target_cell.paste(paste='formats')
             
-            # If the source cell has a formula, update its row reference and copy it.
             if source_cell.formula is not None and '=' in source_cell.formula:
-                # Use a regex to find all absolute and relative cell references
                 updated_formula = re.sub(r'([A-Za-z]+)(\d+)', 
                                          lambda m: m.group(1) + str(int(m.group(2)) + 1), 
                                          source_cell.formula)
@@ -143,7 +139,6 @@ def add_row(wb, sheet_name, row, pk_name='id'):
                 if header in row:
                     target_cell.value = row[header]
         
-        # Manually set the id and version for the new row
         if pk_name in headers:
             pk_col_idx_local = headers.index(pk_name) + 1
             sheet.cells(next_row_num, pk_col_idx_local).value = str(uuid4())
@@ -153,18 +148,23 @@ def add_row(wb, sheet_name, row, pk_name='id'):
             sheet.cells(next_row_num, version_col_idx_local).value = 1
             
         wb.save()
-            
         return {"status": "ok", "message": f"Row added successfully."}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+    finally:
+        if 'app' in locals() and app:
+            app.api.EnableEvents = True
 
 def update_row(wb, sheet_name, pk_name, id, incoming_row):
     try:
+        app = wb.app
+        app.api.EnableEvents = False
         sheet = wb.sheets[sheet_name]
+        is_xlsm = wb.fullname.lower().endswith('.xlsm')
+
         header_row_num, pk_col_idx = find_header_row(sheet, pk_name)
-        pk_col_idx, version_col_idx = ensure_headers_and_ids(sheet, header_row_num, pk_name)
+        pk_col_idx, version_col_idx = ensure_headers_and_ids(sheet, header_row_num, pk_name, is_xlsm)
         
-        # Get all primary key values to find the row to update
         pk_col_values = sheet.range(header_row_num + 1, pk_col_idx).expand('down').value
         if pk_col_values and not isinstance(pk_col_values, list):
             pk_col_values = [pk_col_values]
@@ -179,22 +179,15 @@ def update_row(wb, sheet_name, pk_name, id, incoming_row):
         if row_num is None:
             raise ValueError(f"Row with ID '{id}' not found.")
             
-        # Get the headers from the sheet to map incoming data
         headers = [c.value for c in sheet.range(header_row_num, 1).expand('right')]
         
-        # Iterate through the incoming data and update the row
         for header, value in incoming_row.items():
             if header in headers:
                 col_idx = headers.index(header) + 1
                 cell_to_update = sheet.cells(row_num, col_idx)
-
-                # Check if the cell has a formula. If so, don't overwrite it.
-                # Use .formula property, which returns the formula string or None
                 if cell_to_update.formula is None or not cell_to_update.formula.startswith('='):
                     cell_to_update.value = value
-                # else: The cell contains a formula, so we do nothing.
-                
-        # Update the version number
+        
         if version_col_idx != -1:
             current_version = sheet.cells(row_num, version_col_idx).value or 0
             sheet.cells(row_num, version_col_idx).value = int(current_version) + 1
@@ -204,12 +197,19 @@ def update_row(wb, sheet_name, pk_name, id, incoming_row):
         
     except Exception as e:
         return {"status": "error", "message": str(e)}
+    finally:
+        if 'app' in locals() and app:
+            app.api.EnableEvents = True
 
 def delete_row(wb, sheet_name, pk_name, id):
     try:
+        app = wb.app
+        app.api.EnableEvents = False
         sheet = wb.sheets[sheet_name]
+        is_xlsm = wb.fullname.lower().endswith('.xlsm')
+
         header_row_num, pk_col_idx = find_header_row(sheet, pk_name)
-        pk_col_idx, _ = ensure_headers_and_ids(sheet, header_row_num, pk_name)
+        pk_col_idx, _ = ensure_headers_and_ids(sheet, header_row_num, pk_name, is_xlsm)
         pk_col_values = sheet.range(header_row_num + 1, pk_col_idx).expand('down').value
         if pk_col_values and not isinstance(pk_col_values, list):
             pk_col_values = [pk_col_values]
@@ -226,14 +226,21 @@ def delete_row(wb, sheet_name, pk_name, id):
         return {"status": "ok", "message": f"Row with ID '{id}' deleted successfully."}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+    finally:
+        if 'app' in locals() and app:
+            app.api.EnableEvents = True
 
 if __name__ == "__main__":
-    app = xw.App(visible=False)
-    app.display_alerts = False
+    app = None
     wb = None
     try:
         command = sys.argv[1]
         params = json.loads(sys.argv[2])
+        
+        app = xw.App(visible=False)
+        app.display_alerts = False
+        app.api.EnableEvents = False
+        
         wb = app.books.open(params['filePath'])
         result = {}
         if command == 'add-row':
@@ -247,6 +254,13 @@ if __name__ == "__main__":
         print(json.dumps({"status": "error", "message": f"Script execution error: {str(e)}"}))
     finally:
         if wb:
-            wb.close()
+            try:
+                wb.close()
+            except Exception as e:
+                sys.stderr.write(f"Error closing workbook: {e}\n")
         if app:
-            app.quit()
+            try:
+                app.api.EnableEvents = True
+                app.quit()
+            except Exception as e:
+                sys.stderr.write(f"Error quitting Excel app: {e}\n")
